@@ -12,7 +12,9 @@ describe("AWS partition endpoint hosts", () => {
 
         expect(url.hostname).toBe(`runtime.sagemaker.${region}.amazonaws.com.cn`);
         expect(url.pathname).toBe(
-            stream ? "/endpoints/cohere-endpoint/invocations-response-stream" : "/endpoints/cohere-endpoint/invocations",
+            stream
+                ? "/endpoints/cohere-endpoint/invocations-response-stream"
+                : "/endpoints/cohere-endpoint/invocations",
         );
     });
 
