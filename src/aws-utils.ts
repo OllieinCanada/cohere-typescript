@@ -107,7 +107,7 @@ export const getUrl = (
         "sagemaker": stream ? "invocations-response-stream" : "invocations"
     }[platform];
     return {
-        "bedrock": `https://${platform}-runtime.${awsRegion}.amazonaws.com/model/${model}/${endpoint}`,
+        "bedrock": `https://${platform}-runtime.${awsRegion}.amazonaws.com/model/${encodeURIComponent(model)}/${endpoint}`,
         "sagemaker": `https://runtime.sagemaker.${awsRegion}.amazonaws.com/endpoints/${model}/${endpoint}`
     }[platform];
 }
