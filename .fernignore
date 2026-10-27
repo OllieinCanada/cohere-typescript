@@ -25,3 +25,4 @@ tests/unit/aws-utils/awsStreaming.test.ts
 .fern/replay.lock
 .fern/replay.yml
 .gitattributes
+tests/unit/aws-utils/partitionHosts.test.ts

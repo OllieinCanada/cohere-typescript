@@ -102,13 +102,14 @@ export const getUrl = (
     model: string,
     stream: boolean,
 ): string => {
+    const dnsSuffix = awsRegion.startsWith("cn-") ? "amazonaws.com.cn" : "amazonaws.com";
     const endpoint = {
         "bedrock": stream ? "invoke-with-response-stream" : "invoke",
         "sagemaker": stream ? "invocations-response-stream" : "invocations"
     }[platform];
     return {
-        "bedrock": `https://${platform}-runtime.${awsRegion}.amazonaws.com/model/${model}/${endpoint}`,
-        "sagemaker": `https://runtime.sagemaker.${awsRegion}.amazonaws.com/endpoints/${model}/${endpoint}`
+        "bedrock": `https://${platform}-runtime.${awsRegion}.${dnsSuffix}/model/${model}/${endpoint}`,
+        "sagemaker": `https://runtime.sagemaker.${awsRegion}.${dnsSuffix}/endpoints/${model}/${endpoint}`
     }[platform];
 }
 
