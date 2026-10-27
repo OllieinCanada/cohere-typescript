@@ -14,7 +14,13 @@ function collect(body: unknown): Promise<Buffer> {
     return new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
         stream.on("data", (value) => {
-            chunks.push(Buffer.isBuffer(value) ? value : Buffer.from(String(value)));
+            if (typeof value === "string") {
+                chunks.push(Buffer.from(value));
+            } else if (value instanceof Uint8Array) {
+                chunks.push(Buffer.from(value));
+            } else {
+                reject(new TypeError("Expected multipart bytes"));
+            }
         });
         stream.on("error", reject);
         stream.on("end", () => resolve(Buffer.concat(chunks)));
