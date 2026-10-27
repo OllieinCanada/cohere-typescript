@@ -148,7 +148,11 @@ export const getAuthHeaders = async (url: URL, method: string, headers: Record<s
     // The connection header may be stripped by a proxy somewhere, so the receiver
     // of this message may not see this header, so we remove it from the set of headers
     // that are signed.
-    delete headers['connection'];
+    for (const header of Object.keys(headers)) {
+        if (header.toLowerCase() === 'connection' || header.toLowerCase() === 'host') {
+            delete headers[header];
+        }
+    }
     headers['host'] = url.hostname;
 
     const request = new HttpRequest({
