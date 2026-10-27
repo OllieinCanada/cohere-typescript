@@ -171,7 +171,7 @@ export const parseAWSEvent = (line: string): any => {
         if (obj.bytes) {
             const base64Payload = Buffer.from(obj.bytes, 'base64').toString('utf-8');
             const streamedObj = JSON.parse(base64Payload);
-            if (streamedObj.event_type) {
+            if (streamedObj.event_type || typeof streamedObj.type === "string") {
                 return streamedObj;
             }
         }
