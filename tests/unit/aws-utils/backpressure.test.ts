@@ -10,9 +10,9 @@ vi.mock("../../../src/core", async (importOriginal) => {
 });
 
 function frame(text: string): Buffer {
-    const bytes = Buffer.from(
-        JSON.stringify({ event_type: "text-generation", text, is_finished: false }),
-    ).toString("base64");
+    const bytes = Buffer.from(JSON.stringify({ event_type: "text-generation", text, is_finished: false })).toString(
+        "base64",
+    );
     return Buffer.from(`:event-typeevent{"bytes":"${bytes}"}\n`);
 }
 
