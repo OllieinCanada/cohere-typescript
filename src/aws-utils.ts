@@ -242,6 +242,20 @@ export const fetchOverride = (platform: AwsPlatform, {
             // async iterator checks the stream's errored state; this no-op listener only stops
             // the process from crashing if the pump fails before a consumer is attached.
             newBody.on("error", () => {});
+            const writeChunk = async (chunk: string): Promise<void> => {
+                if (newBody.destroyed || newBody.write(chunk)) {
+                    return;
+                }
+                await new Promise<void>((resolve) => {
+                    const resume = (): void => {
+                        newBody.off("drain", resume);
+                        newBody.off("close", resume);
+                        resolve();
+                    };
+                    newBody.once("drain", resume);
+                    newBody.once("close", resume);
+                });
+            };
 
             // Pump the upstream stream in the background so the caller gets a
             // readable body immediately instead of after the last event.
@@ -255,7 +269,7 @@ export const fetchOverride = (platform: AwsPlatform, {
                             const event = parseAWSEvent(line);
                             if (event) {
                                 const obj = await mapResponseFromBedrock(isStreaming, endpoint, version, event);
-                                newBody.push(JSON.stringify(obj) + "\n");
+                                await writeChunk(JSON.stringify(obj) + "\n");
                             }
                         }
                     }
@@ -264,7 +278,7 @@ export const fetchOverride = (platform: AwsPlatform, {
                         const event = parseAWSEvent(line);
                         if (event) {
                             const obj = await mapResponseFromBedrock(isStreaming, endpoint, version, event);
-                            newBody.push(JSON.stringify(obj) + "\n");
+                            await writeChunk(JSON.stringify(obj) + "\n");
                         }
                     }
                     newBody.end();
