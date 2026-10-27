@@ -72,7 +72,7 @@ jobs:
               print(result.stderr, end="", flush=True)
               print("exit code:", result.returncode, flush=True)
               assert result.returncode in (0, 1), result.stdout
-              report = json.loads(result.stdout)
+              report = json.JSONDecoder().raw_decode(result.stdout[result.stdout.index("{"):])[0]
               findings = collections.Counter()
               for d in report.get("diagnostics", []):
                   location = d.get("location") or {}
