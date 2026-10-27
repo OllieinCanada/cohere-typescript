@@ -12,6 +12,11 @@ function isNamedValue(value: unknown): value is { name: string } {
     return typeof value === "object" && value != null && "name" in value;
 }
 
+async function isNodeReadable(value: unknown): Promise<boolean> {
+    const [compat, native] = await Promise.all([import("readable-stream"), import("stream")]);
+    return value instanceof compat.Readable || value instanceof native.Readable;
+}
+
 export interface CrossPlatformFormData {
     setup(): Promise<void>;
 
@@ -60,7 +65,7 @@ export class Node18FormData implements CrossPlatformFormData {
             fileName = value.name;
         }
 
-        if (value instanceof (await import("readable-stream")).Readable) {
+        if (await isNodeReadable(value)) {
             this.fd?.append(key, {
                 type: undefined,
                 name: fileName,
