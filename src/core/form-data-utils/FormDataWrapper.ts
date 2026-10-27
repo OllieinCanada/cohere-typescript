@@ -129,7 +129,7 @@ export class Node16FormData implements CrossPlatformFormData {
         }
 
         let bufferedValue;
-        if (!(value instanceof (await import("readable-stream")).Readable)) {
+        if (!(await isNodeReadable(value))) {
             bufferedValue = Buffer.from(await (value as any).arrayBuffer());
         } else {
             bufferedValue = value;
