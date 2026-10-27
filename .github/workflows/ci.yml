@@ -1,78 +1,122 @@
-name: ci
-
-on: [push]
-
+name: Cohere batch 05 fix(aws): preserve V2 streaming events
+on:
+  push:
+    branches: ['validation/cohere-19-05']
 permissions:
-  id-token: write  # Required for OIDC
   contents: read
-
 jobs:
-  compile:
+  validate:
     runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
+    env:
+      AWS_EC2_METADATA_DISABLED: 'true'
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Set up node
-        uses: actions/setup-node@v4
-
-      - name: Install pnpm
-        run: npm install -g pnpm@10.20.0
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Compile
-        run: pnpm build
-
-  test:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Set up node
-        uses: actions/setup-node@v4
-
-      - name: Install pnpm
-        run: npm install -g pnpm@10.20.0
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Test
-        run: pnpm test
-        env:
-          COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
-
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '${{ matrix.node-version }}'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare offline test guard
+        run: |
+          cat > "$RUNNER_TEMP/cohere-no-network.cjs" <<'JS'
+          const net = require("node:net");
+          net.Socket.prototype.connect = function() {
+            throw new Error("Network access is disabled during offline SDK tests");
+          };
+          JS
+      - name: Prove regression against exact main
+        run: |
+          cat > "$RUNNER_TEMP/prove-before.py" <<'PY'
+          import pathlib, subprocess, json
+          path = pathlib.Path("src/aws-utils.ts")
+          head = path.read_bytes()
+          try:
+              path.write_bytes(subprocess.check_output(["git", "show", "5ad6d8d29b11de9388f1ffcb8d4e2e3789124737:src/aws-utils.ts"]))
+              result = subprocess.run(["pnpm", "exec", "vitest", "run", "--project", "unit", "tests/unit/aws-utils/v2Events.test.ts", "--reporter=default", "--reporter=json", "--outputFile=/tmp/cohere-before.json"])
+              summary = json.loads(pathlib.Path("/tmp/cohere-before.json").read_text())
+              print("REGRESSION_BEFORE", result.returncode, summary["numTotalTests"], summary["numFailedTests"], summary["numPassedTests"], flush=True)
+              assert result.returncode == 1 and summary["numTotalTests"] == 3 and summary["numFailedTests"] == 2 and summary["numPassedTests"] == 1
+          finally:
+              path.write_bytes(head)
+          PY
+          NODE_OPTIONS="--require=$RUNNER_TEMP/cohere-no-network.cjs" python "$RUNNER_TEMP/prove-before.py"
+      - name: Focused regression tests
+        run: NODE_OPTIONS="--require=$RUNNER_TEMP/cohere-no-network.cjs" pnpm exec vitest run --project unit tests/unit/aws-utils/v2Events.test.ts
+      - name: Offline unit suite
+        run: NODE_OPTIONS="--require=$RUNNER_TEMP/cohere-no-network.cjs" pnpm exec vitest run --project unit
+      - run: pnpm build
+      - run: pnpm exec biome check tests/unit/aws-utils/v2Events.test.ts
+      - name: Full Biome diagnostics and baseline comparison
+        run: |
+          cat > "$RUNNER_TEMP/compare-biome.py" <<'PY'
+          import collections, json, pathlib, subprocess
+          root = pathlib.Path.cwd()
+          paths = ["src/aws-utils.ts", "tests/unit/aws-utils/v2Events.test.ts", ".fernignore"]
+          head = {p: pathlib.Path(p).read_bytes() for p in paths}
+          reports = pathlib.Path("/tmp/cohere-biome-reports")
+          reports.mkdir(exist_ok=True)
+          
+          def check(kind, label):
+              command = ["pnpm", "run", "lint" if kind == "lint" else "format:check", "--reporter=json"]
+              print("$", " ".join(command), flush=True)
+              result = subprocess.run(command, capture_output=True, text=True)
+              (reports / (label + "-" + kind + ".stdout.json")).write_text(result.stdout)
+              (reports / (label + "-" + kind + ".stderr.txt")).write_text(result.stderr)
+              print(result.stderr, end="", flush=True)
+              print("exit code:", result.returncode, flush=True)
+              assert result.returncode in (0, 1), result.stdout
+              report = json.loads(result.stdout)
+              findings = collections.Counter()
+              for d in report.get("diagnostics", []):
+                  location = d.get("location") or {}
+                  path = location.get("path") or {}
+                  name = path.get("file", str(path)) if isinstance(path, dict) else path
+                  if isinstance(name, str):
+                      name = name.replace(str(root) + "/", "")
+                  findings[(name, d.get("category"), d.get("description"))] += 1
+              return findings
+          
+          current = {k: check(k, "head") for k in ["lint", "format"]}
+          try:
+              for p in paths:
+                  if p == "tests/unit/aws-utils/v2Events.test.ts":
+                      pathlib.Path(p).unlink()
+                  else:
+                      pathlib.Path(p).write_bytes(subprocess.check_output(["git", "show", "5ad6d8d29b11de9388f1ffcb8d4e2e3789124737:" + p]))
+              baseline = {k: check(k, "base") for k in ["lint", "format"]}
+          finally:
+              for p, content in head.items():
+                  pathlib.Path(p).write_bytes(content)
+          
+          summary = {k: {"head": sum(current[k].values()), "base": sum(baseline[k].values()), "new": list((current[k] - baseline[k]).elements())} for k in current}
+          print("BASELINE_COMPARISON", json.dumps(summary), flush=True)
+          assert all(not (current[k] - baseline[k]) for k in current), "New Biome findings"
+          PY
+          python "$RUNNER_TEMP/compare-biome.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: biome-diagnostics-node-${{ matrix.node-version }}
+          path: /tmp/cohere-biome-reports/
+          if-no-files-found: ignore
+      - run: git diff --check
+      - run: git diff --exit-code
   publish:
-    needs: [ compile, test ]
-    if: github.event_name == 'push' && contains(github.ref, 'refs/tags/')
+    needs: validate
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: write
     steps:
-    - name: Checkout repo
-      uses: actions/checkout@v4
-
-    - name: Set up node
-      uses: actions/setup-node@v4
-      with:
-        node-version: '24'
-        registry-url: 'https://registry.npmjs.org'
-
-    - name: Install pnpm
-      run: npm install -g pnpm@10.20.0
-
-    - name: Install dependencies
-      run: pnpm install
-
-    - name: Build
-      run: pnpm build
-
-    - name: Publish to npm
-      run: npm publish --access public
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: |
+          test "$(git diff --name-only 09768492f2a7946ac5faa34076e29830e2fd67aa HEAD)" = ".github/workflows/ci.yml"
+          git push origin 09768492f2a7946ac5faa34076e29830e2fd67aa:refs/heads/fix/preserve-aws-v2-stream-events
