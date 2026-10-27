@@ -1,4 +1,4 @@
-name: Cohere batch 05 fix(aws): preserve V2 streaming events
+name: Cohere batch 05 AWS validation
 on:
   push:
     branches: ['validation/cohere-19-05']
